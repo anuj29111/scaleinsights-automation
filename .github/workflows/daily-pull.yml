@@ -9,12 +9,18 @@ on:
   workflow_dispatch:
     inputs:
       country:
-        description: 'Country code (US, CA, UK, DE, FR, AE, AU). Leave empty for all.'
+        description: 'Country code (US, CA, UK, DE, FR, AU). Leave empty for all.'
         required: false
       days:
-        description: 'Days to download (default: 30)'
+        description: 'Days to download (default: 7)'
         required: false
-        default: '30'
+        default: '7'
+      from_date:
+        description: 'Start date YYYY-MM-DD (overrides days param, for backfill)'
+        required: false
+      to_date:
+        description: 'End date YYYY-MM-DD (default: today)'
+        required: false
       dry_run:
         description: 'Download only, skip DB insert'
         type: boolean
@@ -53,10 +59,20 @@ jobs:
             CMD="$CMD --country ${{ github.event.inputs.country }}"
           fi
 
-          # Add days parameter
-          DAYS="${{ github.event.inputs.days }}"
-          DAYS="${DAYS:-30}"
-          CMD="$CMD --days $DAYS"
+          # Add from-date if specified (for backfill)
+          if [ -n "${{ github.event.inputs.from_date }}" ]; then
+            CMD="$CMD --from-date ${{ github.event.inputs.from_date }}"
+          else
+            # Add days parameter (only when from_date not specified)
+            DAYS="${{ github.event.inputs.days }}"
+            DAYS="${DAYS:-7}"
+            CMD="$CMD --days $DAYS"
+          fi
+
+          # Add to-date if specified
+          if [ -n "${{ github.event.inputs.to_date }}" ]; then
+            CMD="$CMD --to-date ${{ github.event.inputs.to_date }}"
+          fi
 
           # Add dry-run flag
           if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then
@@ -72,6 +88,8 @@ jobs:
           echo "## ScaleInsights Rankings Pull" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Country:** ${{ github.event.inputs.country || 'All' }}" >> $GITHUB_STEP_SUMMARY
-          echo "**Days:** ${{ github.event.inputs.days || '30' }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Days:** ${{ github.event.inputs.days || '7' }}" >> $GITHUB_STEP_SUMMARY
+          echo "**From Date:** ${{ github.event.inputs.from_date || 'N/A' }}" >> $GITHUB_STEP_SUMMARY
+          echo "**To Date:** ${{ github.event.inputs.to_date || 'today' }}" >> $GITHUB_STEP_SUMMARY
           echo "**Dry Run:** ${{ github.event.inputs.dry_run || 'false' }}" >> $GITHUB_STEP_SUMMARY
           echo "**Status:** ${{ job.status }}" >> $GITHUB_STEP_SUMMARY

@@ -50,7 +50,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # All supported countries (in processing order)
-ALL_COUNTRIES = ["US", "CA", "UK", "DE", "FR", "AE", "AU"]
+ALL_COUNTRIES = ["US", "CA", "UK", "DE", "FR", "AU"]
 
 # Delay between country downloads (seconds) — avoid rate limiting
 INTER_COUNTRY_DELAY = 5
@@ -198,13 +198,23 @@ def main():
     parser.add_argument(
         "--country",
         type=str,
-        help="Single country code (US, CA, UK, DE, FR, AE, AU). Default: all countries.",
+        help="Single country code (US, CA, UK, DE, FR, AU). Default: all countries.",
     )
     parser.add_argument(
         "--days",
         type=int,
-        default=30,
-        help="Number of days to download (default: 30)",
+        default=7,
+        help="Number of days to download (default: 7)",
+    )
+    parser.add_argument(
+        "--from-date",
+        type=str,
+        help="Start date YYYY-MM-DD (overrides --days). For backfill.",
+    )
+    parser.add_argument(
+        "--to-date",
+        type=str,
+        help="End date YYYY-MM-DD (default: today).",
     )
     parser.add_argument(
         "--dry-run",
@@ -224,8 +234,11 @@ def main():
 
     # Calculate date range
     today = datetime.now()
-    from_date = (today - timedelta(days=args.days)).strftime("%Y-%m-%d")
-    to_date = today.strftime("%Y-%m-%d")
+    if args.from_date:
+        from_date = args.from_date
+    else:
+        from_date = (today - timedelta(days=args.days)).strftime("%Y-%m-%d")
+    to_date = args.to_date if args.to_date else today.strftime("%Y-%m-%d")
 
     # Get credentials
     email = os.environ.get("SI_EMAIL")

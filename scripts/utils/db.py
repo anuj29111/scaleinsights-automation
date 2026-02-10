@@ -26,7 +26,6 @@ MARKETPLACE_UUIDS = {
     "UK": "b2c3d4e5-58cc-4372-a567-0e02b2c3d481",
     "DE": "c3d4e5f6-58cc-4372-a567-0e02b2c3d482",
     "FR": "d4e5f6a7-58cc-4372-a567-0e02b2c3d483",
-    "AE": "e5f6a7b8-58cc-4372-a567-0e02b2c3d484",
     "AU": "f6a7b8c9-58cc-4372-a567-0e02b2c3d485",
 }
 
@@ -34,10 +33,9 @@ MARKETPLACE_UUIDS = {
 SI_COUNTRY_CODES = {
     "US": "US",
     "CA": "CA",
-    "UK": "GB",   # UK uses GB in ScaleInsights
+    "UK": "UK",
     "DE": "DE",
     "FR": "FR",
-    "AE": "AE",
     "AU": "AU",
 }
 
@@ -48,7 +46,6 @@ COUNTRY_MIN_SIZE = {
     "UK": 100 * 1024,    # 100KB
     "DE": 50 * 1024,     # 50KB
     "FR": 20 * 1024,     # 20KB
-    "AE": 20 * 1024,     # 20KB
     "AU": 20 * 1024,     # 20KB
 }
 
