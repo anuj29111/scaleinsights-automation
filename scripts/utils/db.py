@@ -118,7 +118,7 @@ def update_import_record(
     if row_count is not None:
         update_data["row_count"] = row_count
     if message:
-        update_data["notes"] = message
+        update_data["metadata"] = {"notes": message}
     if error:
         update_data["error_message"] = error
     if status in ("completed", "failed"):
