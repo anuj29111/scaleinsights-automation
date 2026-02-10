@@ -1,0 +1,77 @@
+name: ScaleInsights Daily Rankings Pull
+
+on:
+  # Run daily at 6 AM UTC (11:30 AM IST)
+  schedule:
+    - cron: '0 6 * * *'
+
+  # Allow manual trigger
+  workflow_dispatch:
+    inputs:
+      country:
+        description: 'Country code (US, CA, UK, DE, FR, AE, AU). Leave empty for all.'
+        required: false
+      days:
+        description: 'Days to download (default: 30)'
+        required: false
+        default: '30'
+      dry_run:
+        description: 'Download only, skip DB insert'
+        type: boolean
+        default: false
+
+jobs:
+  pull-rankings:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Pull ScaleInsights rankings
+        env:
+          SI_EMAIL: ${{ secrets.SI_EMAIL }}
+          SI_PASSWORD: ${{ secrets.SI_PASSWORD }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        run: |
+          CMD="python scripts/pull_rankings.py"
+
+          # Add country filter if specified
+          if [ -n "${{ github.event.inputs.country }}" ]; then
+            CMD="$CMD --country ${{ github.event.inputs.country }}"
+          fi
+
+          # Add days parameter
+          DAYS="${{ github.event.inputs.days }}"
+          DAYS="${DAYS:-30}"
+          CMD="$CMD --days $DAYS"
+
+          # Add dry-run flag
+          if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then
+            CMD="$CMD --dry-run"
+          fi
+
+          echo "Running: $CMD"
+          $CMD
+
+      - name: Post summary
+        if: always()
+        run: |
+          echo "## ScaleInsights Rankings Pull" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Country:** ${{ github.event.inputs.country || 'All' }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Days:** ${{ github.event.inputs.days || '30' }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Dry Run:** ${{ github.event.inputs.dry_run || 'false' }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Status:** ${{ job.status }}" >> $GITHUB_STEP_SUMMARY
