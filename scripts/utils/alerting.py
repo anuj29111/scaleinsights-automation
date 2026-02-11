@@ -162,68 +162,69 @@ class AlertManager:
             f"{total_keywords:,} keywords, {total_ranks:,} ranks, {duration_str}"
         )
 
-        # Always send summary to Slack (unlike SP-API which only sends on failure)
-        color = "#00FF00" if all_success else "#FFA500"
+        # Only send Slack summary if there were failures
+        if not all_success:
+            country_lines = []
+            for r in results:
+                emoji = "white_check_mark" if r["status"] == "completed" else "x"
+                line = f":{emoji}: {r['country']}"
+                if r.get("keywords"):
+                    line += f" ({r['keywords']:,} kw, {r.get('ranks', 0):,} ranks)"
+                if r.get("error"):
+                    line += f" - {r['error']}"
+                country_lines.append(line)
 
-        country_lines = []
-        for r in results:
-            emoji = "white_check_mark" if r["status"] == "completed" else "x"
-            line = f":{emoji}: {r['country']}"
-            if r.get("keywords"):
-                line += f" ({r['keywords']:,} kw, {r.get('ranks', 0):,} ranks)"
-            if r.get("error"):
-                line += f" - {r['error']}"
-            country_lines.append(line)
-
-        self._send_slack({
-            "attachments": [{
-                "color": color,
-                "blocks": [
-                    {
-                        "type": "header",
-                        "text": {
-                            "type": "plain_text",
-                            "text": f"ScaleInsights Import: {status_text}",
-                            "emoji": True,
+            self._send_slack({
+                "attachments": [{
+                    "color": "#FFA500",
+                    "blocks": [
+                        {
+                            "type": "header",
+                            "text": {
+                                "type": "plain_text",
+                                "text": f"ScaleInsights Import: {status_text}",
+                                "emoji": True,
+                            },
                         },
-                    },
-                    {
-                        "type": "section",
-                        "fields": [
-                            {
-                                "type": "mrkdwn",
-                                "text": f"*Countries:*\n{len(completed)}/{len(results)} success",
-                            },
-                            {
-                                "type": "mrkdwn",
-                                "text": f"*Keywords:*\n{total_keywords:,}",
-                            },
-                            {
-                                "type": "mrkdwn",
-                                "text": f"*Ranks:*\n{total_ranks:,}",
-                            },
-                            {
-                                "type": "mrkdwn",
-                                "text": f"*Duration:*\n{duration_str}",
-                            },
-                        ],
-                    },
-                    {
-                        "type": "section",
-                        "text": {
-                            "type": "mrkdwn",
-                            "text": "\n".join(country_lines),
+                        {
+                            "type": "section",
+                            "fields": [
+                                {
+                                    "type": "mrkdwn",
+                                    "text": f"*Countries:*\n{len(completed)}/{len(results)} success",
+                                },
+                                {
+                                    "type": "mrkdwn",
+                                    "text": f"*Keywords:*\n{total_keywords:,}",
+                                },
+                                {
+                                    "type": "mrkdwn",
+                                    "text": f"*Ranks:*\n{total_ranks:,}",
+                                },
+                                {
+                                    "type": "mrkdwn",
+                                    "text": f"*Duration:*\n{duration_str}",
+                                },
+                            ],
                         },
-                    },
-                    {
-                        "type": "context",
-                        "elements": [
-                            {"type": "mrkdwn", "text": f"Time: {timestamp}"},
-                        ],
-                    },
-                ],
-            }],
-        })
+                        {
+                            "type": "section",
+                            "text": {
+                                "type": "mrkdwn",
+                                "text": "\n".join(country_lines),
+                            },
+                        },
+                        {
+                            "type": "context",
+                            "elements": [
+                                {"type": "mrkdwn", "text": f"Time: {timestamp}"},
+                            ],
+                        },
+                    ],
+                }],
+            })
+        else:
+            logger.info("All countries succeeded — skipping Slack summary")
 
 
 # Singleton
