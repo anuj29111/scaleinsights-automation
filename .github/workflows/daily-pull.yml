@@ -1,9 +1,11 @@
 name: ScaleInsights Daily Rankings Pull
 
 on:
-  # Run daily at 6 AM UTC (11:30 AM IST)
+  # EU/AU run: 6 AM UTC (data ready — these regions are ahead of UTC)
+  # NA run: 10 AM UTC (US/CA day ends ~8 AM UTC, buffer for data finalization)
   schedule:
     - cron: '0 6 * * *'
+    - cron: '0 10 * * *'
 
   # Allow manual trigger
   workflow_dispatch:
@@ -52,44 +54,73 @@ jobs:
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
         run: |
-          CMD="python scripts/pull_rankings.py"
+          # Determine which countries to run based on schedule or manual input
+          if [ "${{ github.event_name }}" = "schedule" ]; then
+            # Check which cron triggered this run
+            HOUR=$(date -u +%H)
+            if [ "$HOUR" -lt 8 ]; then
+              # 6 AM UTC run → EU + AU
+              COUNTRIES="UK DE FR AU"
+            else
+              # 10 AM UTC run → NA
+              COUNTRIES="US CA"
+            fi
 
-          # Add country filter if specified
-          if [ -n "${{ github.event.inputs.country }}" ]; then
-            CMD="$CMD --country ${{ github.event.inputs.country }}"
-          fi
-
-          # Add from-date if specified (for backfill)
-          if [ -n "${{ github.event.inputs.from_date }}" ]; then
-            CMD="$CMD --from-date ${{ github.event.inputs.from_date }}"
+            # Run each country separately
+            for COUNTRY in $COUNTRIES; do
+              echo "=== Running $COUNTRY ==="
+              python scripts/pull_rankings.py --country "$COUNTRY" --days 7
+            done
           else
-            # Add days parameter (only when from_date not specified)
-            DAYS="${{ github.event.inputs.days }}"
-            DAYS="${DAYS:-7}"
-            CMD="$CMD --days $DAYS"
-          fi
+            # Manual trigger — use inputs as-is
+            CMD="python scripts/pull_rankings.py"
 
-          # Add to-date if specified
-          if [ -n "${{ github.event.inputs.to_date }}" ]; then
-            CMD="$CMD --to-date ${{ github.event.inputs.to_date }}"
-          fi
+            # Add country filter if specified
+            if [ -n "${{ github.event.inputs.country }}" ]; then
+              CMD="$CMD --country ${{ github.event.inputs.country }}"
+            fi
 
-          # Add dry-run flag
-          if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then
-            CMD="$CMD --dry-run"
-          fi
+            # Add from-date if specified (for backfill)
+            if [ -n "${{ github.event.inputs.from_date }}" ]; then
+              CMD="$CMD --from-date ${{ github.event.inputs.from_date }}"
+            else
+              # Add days parameter (only when from_date not specified)
+              DAYS="${{ github.event.inputs.days }}"
+              DAYS="${DAYS:-7}"
+              CMD="$CMD --days $DAYS"
+            fi
 
-          echo "Running: $CMD"
-          $CMD
+            # Add to-date if specified
+            if [ -n "${{ github.event.inputs.to_date }}" ]; then
+              CMD="$CMD --to-date ${{ github.event.inputs.to_date }}"
+            fi
+
+            # Add dry-run flag
+            if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then
+              CMD="$CMD --dry-run"
+            fi
+
+            echo "Running: $CMD"
+            $CMD
+          fi
 
       - name: Post summary
         if: always()
         run: |
           echo "## ScaleInsights Rankings Pull" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Country:** ${{ github.event.inputs.country || 'All' }}" >> $GITHUB_STEP_SUMMARY
-          echo "**Days:** ${{ github.event.inputs.days || '7' }}" >> $GITHUB_STEP_SUMMARY
-          echo "**From Date:** ${{ github.event.inputs.from_date || 'N/A' }}" >> $GITHUB_STEP_SUMMARY
-          echo "**To Date:** ${{ github.event.inputs.to_date || 'today' }}" >> $GITHUB_STEP_SUMMARY
-          echo "**Dry Run:** ${{ github.event.inputs.dry_run || 'false' }}" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ github.event_name }}" = "schedule" ]; then
+            HOUR=$(date -u +%H)
+            if [ "$HOUR" -lt 8 ]; then
+              echo "**Region:** EU + AU (UK, DE, FR, AU)" >> $GITHUB_STEP_SUMMARY
+            else
+              echo "**Region:** NA (US, CA)" >> $GITHUB_STEP_SUMMARY
+            fi
+          else
+            echo "**Country:** ${{ github.event.inputs.country || 'All' }}" >> $GITHUB_STEP_SUMMARY
+            echo "**Days:** ${{ github.event.inputs.days || '7' }}" >> $GITHUB_STEP_SUMMARY
+            echo "**From Date:** ${{ github.event.inputs.from_date || 'N/A' }}" >> $GITHUB_STEP_SUMMARY
+            echo "**To Date:** ${{ github.event.inputs.to_date || 'today' }}" >> $GITHUB_STEP_SUMMARY
+            echo "**Dry Run:** ${{ github.event.inputs.dry_run || 'false' }}" >> $GITHUB_STEP_SUMMARY
+          fi
           echo "**Status:** ${{ job.status }}" >> $GITHUB_STEP_SUMMARY

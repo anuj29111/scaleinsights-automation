@@ -4,17 +4,30 @@ Automated daily download and import of ScaleInsights keyword ranking data into S
 
 **Repo:** https://github.com/anuj29111/scaleinsights-automation
 **Supabase Project:** `yawaopfqkkvdqtsagmng` (same as Chalkola ONE, region: `ap-south-1`)
+**Status:** Fully deployed. Daily cron active. All 6 countries backfilled from Jan 2025.
 
 ---
 
 ## Architecture
-- **GitHub Actions** runs daily at 6 AM UTC (also supports manual trigger)
+- **GitHub Actions** runs daily on split schedule: EU/AU at 6 AM UTC, NA at 10 AM UTC (also supports manual trigger)
 - Logs into ScaleInsights web portal via `requests.Session()` + CSRF token extraction
 - Downloads keyword ranking Excel files for 6 countries
 - Parses with `python-calamine` (10-50x faster than pandas)
 - Upserts into `si_keywords` + `si_daily_ranks` tables in Supabase
 - Sends Slack Block Kit summary to `#chalkola-hub-alerts`
 - 7-day rolling window (overlapping data safe via UPSERT on unique constraints)
+
+---
+
+## Critical Rules (Bug Prevention)
+- **UK country code is `UK`** not `GB` — ScaleInsights uses `UK` in download URL
+- **AE (UAE) is NOT in ScaleInsights** — do not add it back
+- **`data_imports` table has `metadata` (jsonb) column** — NOT `notes`. Use `{"notes": message}` pattern.
+- **Keyword ID fetch uses `.range()` only** — do NOT combine `.limit()` + `.range()` (Supabase ignores limit with range)
+- **3-second wait required** between keyword upsert and ID fetch (race condition — IDs not immediately queryable)
+- **ScaleInsights has NO date limit** — any date range works (tested Jan 2024 to today, 29MB file)
+- **FR and AU tracking started mid-2025** — no data exists before ~Jul 2025 (FR) / ~Jun 2025 (AU) in ScaleInsights
+- **Processing order: Sponsored first → Organic overwrites** — Organic is preferred source for keyword metrics
 
 ---
 
@@ -58,16 +71,14 @@ Scale Insights/
 | FR | `FR` | `d4e5f6a7-58cc-4372-a567-0e02b2c3d483` | 20 KB |
 | AU | `AU` | `f6a7b8c9-58cc-4372-a567-0e02b2c3d485` | 20 KB |
 
-**Note:** AE (UAE) removed — not tracked in ScaleInsights.
-
 ---
 
 ## Batch Sizes & Timing
 - Keywords upsert: **500/batch**
 - Ranks upsert: **2000/batch**
-- Keyword ID fetch: **10000/page** (paginated with `.range()` only — NOT `.limit()` + `.range()`)
-- DB sync wait: **3 seconds** between keyword upsert and ID fetch (race condition prevention)
-- Inter-country delay: **5 seconds** (avoid rate limiting)
+- Keyword ID fetch: **10000/page**
+- DB sync wait: **3 seconds** between keyword upsert and ID fetch
+- Inter-country delay: **5 seconds**
 
 ---
 
@@ -77,7 +88,7 @@ Scale Insights/
 - **Download URL:** `{BASE_URL}/KeywordRanking?countrycode={code}&from={YYYY-MM-DD}&to={YYYY-MM-DD}&handler=Excel`
 - **Auth:** Email + password (NOT SSO). CSRF token extracted from hidden form fields via BeautifulSoup.
 - **Session:** `requests.Session()` maintains cookies. Auto re-login on session expiry (redirect to Login page detected).
-- **No date limit** — can download any date range (e.g., Jan 2024 to today).
+- **No date limit** — can download any date range.
 
 ---
 
@@ -86,20 +97,7 @@ Scale Insights/
 - **17 fixed columns:** ASIN, SKU, Title, Keyword, Tracked, Sales, ACOS, Conversion, Spent, Orders, Units, Clicks, Query Volume, Conversion Delta, Market Conversion, Asin Conversion, Purchase Share
 - **Dynamic date columns:** YYYY-MM-DD format (newest-first in file, sorted oldest-first in parser)
 - **Rank values:** Integer (1-306), `97+`/`25+`/`N+` (out of range → `None, True`), `None` (no data)
-- **PPC metrics are same in both sheets** — keywords imported from Organic (overwrites Sponsored). Only ranks differ between sheets.
-- **Processing order:** Sponsored first → Organic overwrites (Organic is preferred source for keyword metrics)
 - **Dedup key:** `(asin.upper(), keyword.lower())` for keywords, `(asin, keyword, date)` for ranks
-
----
-
-## Parser Logic (ported from scaleinsight_routes.py)
-1. **Read Excel** via Calamine (write bytes to temp file → `CalamineWorkbook.from_path()` → delete)
-2. **Build keyword records** from both sheets (Sponsored first, Organic overwrites)
-3. **Upsert keywords** into `si_keywords` (500/batch, on_conflict `marketplace_id,child_asin,keyword`)
-4. **Wait 3s** for DB sync
-5. **Fetch keyword IDs** (paginated 10000/page, builds `(asin_upper, keyword_lower) → UUID` map)
-6. **Build merged rank records** from both sheets (organic + sponsored into single row per keyword+date)
-7. **Upsert ranks** into `si_daily_ranks` (2000/batch, on_conflict `keyword_id,rank_date`)
 
 ---
 
@@ -127,8 +125,10 @@ python scripts/pull_rankings.py --country US --days 7 --dry-run
 ---
 
 ## GitHub Actions Workflow
-- **Schedule:** `cron: '0 6 * * *'` (daily 6 AM UTC = 11:30 AM IST)
-- **Default:** 7-day rolling window, all 6 countries
+- **Schedule:** Split by region to ensure complete day data:
+  - `0 6 * * *` (6 AM UTC = 11:30 AM IST) → **EU + AU** (UK, DE, FR, AU)
+  - `0 10 * * *` (10 AM UTC = 3:30 PM IST) → **NA** (US, CA)
+- **Default:** 7-day rolling window
 - **Manual trigger:** `workflow_dispatch` with inputs: country, days, from_date, to_date, dry_run
 - **Secrets:** `SI_EMAIL`, `SI_PASSWORD`, `SUPABASE_URL`, `SUPABASE_SERVICE_KEY`, `SLACK_WEBHOOK_URL`
 - **Python:** 3.11 with pip cache
@@ -136,17 +136,30 @@ python scripts/pull_rankings.py --country US --days 7 --dry-run
 
 ---
 
-## Current Data State (as of Feb 10, 2026)
-| Country | Earliest | Latest | Days | Rank Rows |
-|---------|----------|--------|------|-----------|
-| US | 2025-01-01 | 2026-02-09 | 403 | 1,872,847 |
-| UK | 2025-01-01 | 2026-02-10 | 406 | 1,252,245 |
-| CA | 2025-01-01 | 2026-02-09 | 405 | 549,426 |
-| DE | 2025-01-01 | 2026-02-10 | 406 | 296,050 |
-| FR | 2025-07-03 | 2026-02-10 | 223 | 23,026 |
-| AU | 2025-06-03 | 2026-02-10 | 252 | 14,112 |
+## Downstream Consumers
 
-**Note:** FR and AU start dates reflect when ScaleInsights tracking began for those countries (no data exists before those dates in ScaleInsights).
+### Chalkola ONE (`/Users/anuj/Desktop/Github/Chalkola ONE/`)
+
+Reads `si_keywords` and `si_daily_ranks` for Analysis Tab (keyword intelligence) and Products page.
+
+**Critical join rules Chalkola ONE depends on:**
+- `si_daily_ranks.child_asin` column exists but is NOT populated — must join through `si_keywords` via `keyword_id`
+- `si_daily_ranks` has 2.3M+ rows — ALWAYS filter by marketplace + date range
+- Join columns: `si_daily_ranks.rank_date` (NOT `date`), `si_keywords.child_asin` (NOT `asin`)
+- `si_keywords` columns: `query_volume` (NOT `search_volume`), `keyword` (NOT `keyword_text`)
+- MUST join `products` table with `marketplace_id` filter to avoid cross-marketplace duplication
+- Chalkola ONE uses `execute_readonly_query` RPC (returns jsonb) for SELECT queries. Parameter: `query_text`
+
+**If you change table schemas or unique constraints**, check Chalkola ONE CLAUDE.md for downstream impact.
+
+### SP-API (`/Users/anuj/Desktop/Github/SP-API/`)
+
+No direct dependency — SP-API and ScaleInsights write to the same Supabase project independently. SP-API pulls sales/traffic/inventory/financial data; ScaleInsights pulls keyword ranking data.
+
+---
+
+## Pending Tasks
+None — fully deployed and automated.
 
 ---
 
@@ -157,12 +170,4 @@ python scripts/pull_rankings.py --country US --days 7 --dry-run
 
 ---
 
-## Development History
-| Session | Date | Summary |
-|---------|------|---------|
-| 53 | Feb 10, 2026 | Initial build. 12 files, 1,526 lines. Scraper (login + download), parser (ported from Chalkola ONE), db (Supabase ops), alerting (Slack), orchestrator, GitHub Actions workflow. Tested locally with 6 sample files. Pushed to GitHub. |
-| 54 | Feb 10, 2026 | Live deployment. Added all 5 GitHub Secrets. First US test run succeeded (10,757 keywords, 39,152 ranks). Fixed `data_imports` column bug (`notes` → `metadata` jsonb). Changed UK code from `GB` → `UK`. Removed AE (not in ScaleInsights). Changed default from 30 → 7 days. Added `--from-date`/`--to-date` CLI args + workflow inputs for backfill. Backfilled all 6 countries to current. Daily 7-day rolling window now active. |
-
----
-
-*Last Updated: February 10, 2026 (Session 54 — Fully deployed. All 6 countries backfilled. Daily 7-day cron active at 6 AM UTC.)*
+*Last Updated: February 10, 2026 (Session 55)*
