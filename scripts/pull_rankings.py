@@ -117,7 +117,8 @@ def process_country(
             )
 
             logger.info(
-                f"{country}: Parsed {stats['keyword_count']} keywords, "
+                f"{country}: Parsed {stats['keyword_count']} keywords "
+                f"(filtered {stats.get('keyword_filtered', 0)} of {stats.get('keyword_total_parsed', stats['keyword_count'])}), "
                 f"{stats['rank_entries']} rank entries "
                 f"({stats['date_count']} dates: {stats['date_range_start']} to {stats['date_range_end']})"
             )
@@ -170,11 +171,12 @@ def process_country(
                 import_id,
                 status="completed",
                 row_count=rank_count,
-                message=f"Keywords: {kw_count}, Ranks: {rank_count}, Dates: {stats['date_count']}",
+                message=f"Keywords: {kw_count} kept ({stats.get('keyword_filtered', 0)} filtered), Ranks: {rank_count}, Dates: {stats['date_count']}",
             )
 
             result["status"] = "completed"
             result["keywords"] = kw_count
+            result["keywords_filtered"] = stats.get('keyword_filtered', 0)
             result["ranks"] = rank_count
 
         except Exception as e:

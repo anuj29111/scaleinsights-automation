@@ -290,8 +290,21 @@ def parse_excel(
                 'updated_at': datetime.utcnow().isoformat(),
             }
 
-    keyword_records = list(keyword_map.values())
-    logger.info(f"Extracted {len(keyword_records)} unique keywords from both sheets")
+    # --- Filter: keep only tracked=YES or spent>0 ---
+    all_keywords = list(keyword_map.values())
+    keyword_records = [
+        kw for kw in all_keywords
+        if kw.get('tracked', False) or (kw.get('spent') is not None and kw['spent'] > 0)
+    ]
+    filtered_count = len(all_keywords) - len(keyword_records)
+    logger.info(
+        f"Extracted {len(all_keywords)} unique keywords, "
+        f"kept {len(keyword_records)} after filtering "
+        f"(removed {filtered_count} with no spend and not tracked)"
+    )
+
+    # Set of kept keyword keys for rank filtering
+    kept_keyword_keys = {(kw['child_asin'].upper(), kw['keyword'].lower()) for kw in keyword_records}
 
     # --- Step 2: Build MERGED rank data from both sheets ---
     merged_ranks = {}  # (asin_upper, keyword_lower, date) -> rank dict
@@ -357,8 +370,17 @@ def parse_excel(
         f"(organic: {organic_count}, sponsored: {sponsored_count})"
     )
 
+    # Filter rank entries to only kept keywords
+    pre_filter = len(merged_ranks)
+    merged_ranks = {k: v for k, v in merged_ranks.items() if (k[0], k[1]) in kept_keyword_keys}
+    rank_filtered = pre_filter - len(merged_ranks)
+    if rank_filtered > 0:
+        logger.info(f"Filtered {rank_filtered} rank entries for skipped keywords")
+
     stats = {
         'keyword_count': len(keyword_records),
+        'keyword_total_parsed': len(all_keywords),
+        'keyword_filtered': filtered_count,
         'rank_entries': len(merged_ranks),
         'organic_ranks': organic_count,
         'sponsored_ranks': sponsored_count,

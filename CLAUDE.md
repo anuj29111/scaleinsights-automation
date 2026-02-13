@@ -24,10 +24,12 @@ Automated daily download and import of ScaleInsights keyword ranking data into S
 - **AE (UAE) is NOT in ScaleInsights** — do not add it back
 - **`data_imports` table has `metadata` (jsonb) column** — NOT `notes`. Use `{"notes": message}` pattern.
 - **Keyword ID fetch uses `.range()` only** — do NOT combine `.limit()` + `.range()` (Supabase ignores limit with range)
+- **Keyword ID fetch MUST use `.order("id")`** — without deterministic ORDER BY, `.range()` pagination skips rows during concurrent writes (caused 73% US rank loss Feb 11 2026)
 - **3-second wait required** between keyword upsert and ID fetch (race condition — IDs not immediately queryable)
 - **ScaleInsights has NO date limit** — any date range works (tested Jan 2024 to today, 29MB file)
 - **FR and AU tracking started mid-2025** — no data exists before ~Jul 2025 (FR) / ~Jun 2025 (AU) in ScaleInsights
 - **Processing order: Sponsored first → Organic overwrites** — Organic is preferred source for keyword metrics
+- **Keyword import filter: tracked=YES OR spent>0** — only these keywords are imported. Untracked keywords with no spend are skipped in parser.py after keyword_map is built.
 
 ---
 
@@ -170,4 +172,4 @@ None — fully deployed and automated.
 
 ---
 
-*Last Updated: February 10, 2026 (Session 55)*
+*Last Updated: February 13, 2026 (Session 56)*
