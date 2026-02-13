@@ -188,7 +188,7 @@ def fetch_keyword_ids(marketplace_id: str) -> Dict[Tuple[str, str], str]:
             "id, child_asin, keyword"
         ).eq(
             "marketplace_id", marketplace_id
-        ).range(offset, offset + page_size - 1).execute()
+        ).order("id").range(offset, offset + page_size - 1).execute()
 
         rows = result.data or []
         for kw in rows:
