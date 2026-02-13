@@ -290,17 +290,20 @@ def parse_excel(
                 'updated_at': datetime.utcnow().isoformat(),
             }
 
-    # --- Filter: keep only tracked=YES or spent>0 ---
+    # --- Filter: keep only tracked=YES or (spent>0 AND units>0) ---
     all_keywords = list(keyword_map.values())
     keyword_records = [
         kw for kw in all_keywords
-        if kw.get('tracked', False) or (kw.get('spent') is not None and kw['spent'] > 0)
+        if kw.get('tracked', False) or (
+            kw.get('spent') is not None and kw['spent'] > 0
+            and kw.get('units') is not None and kw['units'] > 0
+        )
     ]
     filtered_count = len(all_keywords) - len(keyword_records)
     logger.info(
         f"Extracted {len(all_keywords)} unique keywords, "
         f"kept {len(keyword_records)} after filtering "
-        f"(removed {filtered_count} with no spend and not tracked)"
+        f"(removed {filtered_count} untracked with no spend/units)"
     )
 
     # Set of kept keyword keys for rank filtering

@@ -29,7 +29,7 @@ Automated daily download and import of ScaleInsights keyword ranking data into S
 - **ScaleInsights has NO date limit** — any date range works (tested Jan 2024 to today, 29MB file)
 - **FR and AU tracking started mid-2025** — no data exists before ~Jul 2025 (FR) / ~Jun 2025 (AU) in ScaleInsights
 - **Processing order: Sponsored first → Organic overwrites** — Organic is preferred source for keyword metrics
-- **Keyword import filter: tracked=YES OR spent>0** — only these keywords are imported. Untracked keywords with no spend are skipped in parser.py after keyword_map is built.
+- **Keyword import filter: tracked=YES OR (spent>0 AND units>0)** — only these keywords are imported. Untracked keywords with no spend/units are skipped in parser.py after keyword_map is built.
 
 ---
 
