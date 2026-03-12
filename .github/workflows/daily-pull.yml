@@ -107,7 +107,7 @@ jobs:
       - name: Post summary
         if: always()
         run: |
-          echo "## ScaleInsights Rankings Pull" >> $GITHUB_STEP_SUMMARY
+          echo "## ScaleInsights Rankings Pull (GitHub)" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           if [ "${{ github.event_name }}" = "schedule" ]; then
             HOUR=$(date -u +%H)
@@ -124,3 +124,73 @@ jobs:
             echo "**Dry Run:** ${{ github.event.inputs.dry_run || 'false' }}" >> $GITHUB_STEP_SUMMARY
           fi
           echo "**Status:** ${{ job.status }}" >> $GITHUB_STEP_SUMMARY
+
+  # Fallback: VPS retry if GitHub runner fails
+  pull-rankings-vps:
+    needs: pull-rankings
+    if: failure()
+    runs-on: [self-hosted, do-spapi]
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python venv
+        run: |
+          python3 -m venv .venv
+          source .venv/bin/activate
+          pip install -r requirements.txt
+
+      - name: Pull ScaleInsights rankings (VPS fallback)
+        env:
+          SI_EMAIL: ${{ secrets.SI_EMAIL }}
+          SI_PASSWORD: ${{ secrets.SI_PASSWORD }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        run: |
+          source .venv/bin/activate
+
+          if [ "${{ github.event_name }}" = "schedule" ]; then
+            HOUR=$(date -u +%H)
+            if [ "$HOUR" -lt 8 ]; then
+              COUNTRIES="UK DE FR AU"
+            else
+              COUNTRIES="US CA"
+            fi
+
+            for COUNTRY in $COUNTRIES; do
+              echo "=== Running $COUNTRY (VPS fallback) ==="
+              python scripts/pull_rankings.py --country "$COUNTRY" --days 7
+            done
+          else
+            CMD="python scripts/pull_rankings.py"
+
+            if [ -n "${{ github.event.inputs.country }}" ]; then
+              CMD="$CMD --country ${{ github.event.inputs.country }}"
+            fi
+
+            if [ -n "${{ github.event.inputs.from_date }}" ]; then
+              CMD="$CMD --from-date ${{ github.event.inputs.from_date }}"
+            else
+              DAYS="${{ github.event.inputs.days }}"
+              DAYS="${DAYS:-7}"
+              CMD="$CMD --days $DAYS"
+            fi
+
+            if [ -n "${{ github.event.inputs.to_date }}" ]; then
+              CMD="$CMD --to-date ${{ github.event.inputs.to_date }}"
+            fi
+
+            if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then
+              CMD="$CMD --dry-run"
+            fi
+
+            echo "Running (VPS fallback): $CMD"
+            $CMD
+          fi
+
+      - name: Cleanup venv
+        if: always()
+        run: rm -rf .venv
