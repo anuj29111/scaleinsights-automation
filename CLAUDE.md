@@ -10,12 +10,15 @@ Automated daily download and import of ScaleInsights keyword ranking data into S
 
 ## Architecture
 - **GitHub Actions** runs daily on split schedule: EU/AU at 6 AM UTC, NA at 10 AM UTC (also supports manual trigger)
+- **VPS fallback** (`do-spapi`) auto-retries if GitHub runner fails
 - Logs into ScaleInsights web portal via `requests.Session()` + CSRF token extraction
 - Downloads keyword ranking Excel files for 6 countries
 - Parses with `python-calamine` (10-50x faster than pandas)
 - Upserts into `si_keywords` + `si_daily_ranks` tables in Supabase
 - Sends Slack Block Kit summary to `#chalkola-hub-alerts`
 - 7-day rolling window (overlapping data safe via UPSERT on unique constraints)
+- **Health check** runs 2h after each pull (8 AM / 12 PM UTC) on VPS, Mac fallback. Validates completeness + benchmarks, auto-fixes missing/anomalous countries
+- **Claude scheduled task** (`si-health-check`) runs daily at 1 PM UTC as third-layer supervisor
 
 ---
 
@@ -37,9 +40,11 @@ Automated daily download and import of ScaleInsights keyword ranking data into S
 ```
 Scale Insights/
 ├── .github/workflows/
-│   └── daily-pull.yml          # GitHub Actions: daily 6 AM UTC + manual trigger
+│   ├── daily-pull.yml          # GitHub Actions: daily pulls + VPS fallback
+│   └── health-check.yml        # Health check: VPS primary + Mac fallback
 ├── scripts/
 │   ├── pull_rankings.py        # Main orchestrator (login → download → parse → upsert)
+│   ├── health_check.py         # Health check (benchmark validation + auto-fix)
 │   └── utils/
 │       ├── scraper.py          # ScaleInsights login + Excel download (retry, re-login)
 │       ├── parser.py           # Excel parsing (ported from Chalkola ONE scaleinsight_routes.py)
@@ -126,15 +131,19 @@ python scripts/pull_rankings.py --country US --days 7 --dry-run
 
 ---
 
-## GitHub Actions Workflow
-- **Schedule:** Split by region to ensure complete day data:
-  - `0 6 * * *` (6 AM UTC = 11:30 AM IST) → **EU + AU** (UK, DE, FR, AU)
-  - `0 10 * * *` (10 AM UTC = 3:30 PM IST) → **NA** (US, CA)
-- **Default:** 7-day rolling window
+## GitHub Actions Workflows
+
+### Daily Pull (`daily-pull.yml`)
+- **Schedule:** `0 6 * * *` → EU+AU (UK, DE, FR, AU) | `0 10 * * *` → NA (US, CA)
+- **Runners:** GitHub Actions (primary) → VPS `do-spapi` (fallback on failure)
 - **Manual trigger:** `workflow_dispatch` with inputs: country, days, from_date, to_date, dry_run
 - **Secrets:** `SI_EMAIL`, `SI_PASSWORD`, `SUPABASE_URL`, `SUPABASE_SERVICE_KEY`, `SLACK_WEBHOOK_URL`
-- **Python:** 3.11 with pip cache
-- **Timeout:** 60 minutes
+
+### Health Check (`health-check.yml`)
+- **Schedule:** `0 8 * * *` → check EU+AU | `0 12 * * *` → check NA (2h after pulls)
+- **Runners:** VPS `do-spapi` (primary) → Mac `mac-spapi` (fallback on failure)
+- **Logic:** Compares today's import counts vs 7-day median. Auto-re-pulls missing/anomalous countries (>5% deviation)
+- **Manual trigger:** `workflow_dispatch` with batch (eu_au/na/all) and no_fix inputs
 
 ---
 
@@ -166,10 +175,9 @@ None — fully deployed and automated.
 ---
 
 ## Future Enhancements
-- Add retry logic at the country level (currently retries only at download level)
 - Consider parallel country downloads (currently sequential with 5s delay)
 - Calibrate minimum file sizes after more runs (current thresholds are estimates)
 
 ---
 
-*Last Updated: February 13, 2026 (Session 56)*
+*Last Updated: March 13, 2026*

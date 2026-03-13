@@ -226,6 +226,109 @@ class AlertManager:
         else:
             logger.info("All countries succeeded — skipping Slack summary")
 
+    def alert_health_check(
+        self,
+        results: List[Dict],
+        fixed_countries: Dict[str, bool],
+        still_broken: List[str],
+    ):
+        """
+        Send health check summary to Slack.
+
+        Args:
+            results: List of dicts with country, status, today_count, benchmark, deviation
+            fixed_countries: Dict of {country: success_bool} for auto-fix attempts
+            still_broken: List of country codes still failing after fix
+        """
+        timestamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
+        total = len(results)
+        ok_count = sum(1 for r in results if r["status"] == "OK")
+
+        if still_broken:
+            color = "#FF0000"
+            title = f"ScaleInsights Health Check: {len(still_broken)} FAILED"
+        elif fixed_countries:
+            color = "#FFA500"
+            title = "ScaleInsights Health Check: Auto-Fixed"
+        else:
+            color = "#36A64F"
+            title = "ScaleInsights Health Check: All OK"
+
+        # Build per-country lines
+        country_lines = []
+        for r in results:
+            dev_str = f"{r['deviation']:.1%}" if r.get("deviation") is not None else "N/A"
+            bench_str = f"{r['benchmark']:,.0f}" if r.get("benchmark") else "N/A"
+
+            if r["status"] == "OK":
+                emoji = "white_check_mark"
+                line = f":{emoji}: {r['country']}: {r.get('today_count', 0):,} ranks (median: {bench_str}, {dev_str})"
+            elif r["status"] == "MISSING":
+                emoji = "x"
+                line = f":{emoji}: {r['country']}: MISSING (median: {bench_str})"
+            else:
+                emoji = "warning"
+                line = f":{emoji}: {r['country']}: {r.get('today_count', 0):,} ranks (median: {bench_str}, {dev_str} deviation)"
+
+            # Add fix status if attempted
+            if r["country"] in fixed_countries:
+                fix_ok = fixed_countries[r["country"]]
+                line += " -> re-pulled: " + ("OK" if fix_ok else "FAILED")
+
+            country_lines.append(line)
+
+        logger.info(f"HEALTH CHECK: {ok_count}/{total} OK, "
+                     f"{len(fixed_countries)} fixed, {len(still_broken)} broken")
+
+        self._send_slack({
+            "attachments": [{
+                "color": color,
+                "blocks": [
+                    {
+                        "type": "header",
+                        "text": {
+                            "type": "plain_text",
+                            "text": title,
+                            "emoji": True,
+                        },
+                    },
+                    {
+                        "type": "section",
+                        "fields": [
+                            {
+                                "type": "mrkdwn",
+                                "text": f"*Countries:*\n{ok_count}/{total} OK",
+                            },
+                            {
+                                "type": "mrkdwn",
+                                "text": f"*Auto-Fixed:*\n{len(fixed_countries)}",
+                            },
+                        ],
+                    },
+                    {
+                        "type": "section",
+                        "text": {
+                            "type": "mrkdwn",
+                            "text": "\n".join(country_lines),
+                        },
+                    },
+                    {
+                        "type": "context",
+                        "elements": [
+                            {"type": "mrkdwn", "text": f"Time: {timestamp}"},
+                        ],
+                    },
+                ],
+            }],
+        })
+
+        # GitHub annotation for failures
+        if still_broken:
+            self._github_annotation(
+                "error",
+                f"ScaleInsights health check: {still_broken} still failing"
+            )
+
 
 # Singleton
 _alert_manager: Optional[AlertManager] = None

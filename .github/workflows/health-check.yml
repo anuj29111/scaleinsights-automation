@@ -1,0 +1,118 @@
+name: ScaleInsights Health Check
+
+on:
+  # Run 2 hours after each pull batch
+  schedule:
+    - cron: '0 8 * * *'    # 8 AM UTC: check EU+AU (2h after 6 AM pull)
+    - cron: '0 12 * * *'   # 12 PM UTC: check NA (2h after 10 AM pull)
+
+  workflow_dispatch:
+    inputs:
+      batch:
+        description: 'Batch to check: eu_au, na, or all'
+        required: false
+        default: 'all'
+      no_fix:
+        description: 'Check only, skip auto-fix'
+        type: boolean
+        default: false
+
+jobs:
+  health-check:
+    runs-on: [self-hosted, do-spapi]
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python venv
+        run: |
+          python3 -m venv .venv
+          source .venv/bin/activate
+          pip install -r requirements.txt
+
+      - name: Run health check
+        env:
+          SI_EMAIL: ${{ secrets.SI_EMAIL }}
+          SI_PASSWORD: ${{ secrets.SI_PASSWORD }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        run: |
+          source .venv/bin/activate
+
+          if [ "${{ github.event_name }}" = "schedule" ]; then
+            HOUR=$(date -u +%H)
+            if [ "$HOUR" -lt 10 ]; then
+              BATCH="eu_au"
+            else
+              BATCH="na"
+            fi
+          else
+            BATCH="${{ github.event.inputs.batch }}"
+            BATCH="${BATCH:-all}"
+          fi
+
+          CMD="python scripts/health_check.py --batch $BATCH"
+
+          if [ "${{ github.event.inputs.no_fix }}" = "true" ]; then
+            CMD="$CMD --no-fix"
+          fi
+
+          echo "Running: $CMD"
+          $CMD
+
+      - name: Cleanup venv
+        if: always()
+        run: rm -rf .venv
+
+      - name: Post summary
+        if: always()
+        run: |
+          echo "## ScaleInsights Health Check" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Status:** ${{ job.status }}" >> $GITHUB_STEP_SUMMARY
+
+  # Mac fallback if VPS fails
+  health-check-mac:
+    needs: health-check
+    if: failure()
+    runs-on: [self-hosted, mac-spapi]
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Run health check (Mac fallback)
+        env:
+          SI_EMAIL: ${{ secrets.SI_EMAIL }}
+          SI_PASSWORD: ${{ secrets.SI_PASSWORD }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        run: |
+          source ~/runner-venv/bin/activate
+          pip install -r requirements.txt
+
+          if [ "${{ github.event_name }}" = "schedule" ]; then
+            HOUR=$(date -u +%H)
+            if [ "$HOUR" -lt 10 ]; then
+              BATCH="eu_au"
+            else
+              BATCH="na"
+            fi
+          else
+            BATCH="${{ github.event.inputs.batch }}"
+            BATCH="${BATCH:-all}"
+          fi
+
+          CMD="python scripts/health_check.py --batch $BATCH"
+
+          if [ "${{ github.event.inputs.no_fix }}" = "true" ]; then
+            CMD="$CMD --no-fix"
+          fi
+
+          echo "Running (Mac fallback): $CMD"
+          $CMD
